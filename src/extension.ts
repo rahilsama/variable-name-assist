@@ -1,26 +1,72 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
-import * as vscode from 'vscode';
+import * as vscode from "vscode";
+
+async function suggestVariableName(signal: string): Promise<string | null> {
+  const prompt = `
+You are a variable naming assistant.
+Output ONLY a valid JavaScript variable name.
+No explanations. No punctuation. No spaces.
+
+Signal: ${signal}
+`;
+
+  const res = await fetch("http://localhost:11434/api/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "qwen2.5-coder:3b",
+      prompt,
+      stream: false,
+    }),
+  });
+
+  if (!res.ok) return null;
+
+  const data: any = await res.json();
+  const output = data.response?.trim();
+
+  // HARD guardrail
+  if (!output || !/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(output)) {
+    return null;
+  }
+
+  return output;
+}
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+  const provider = vscode.languages.registerCompletionItemProvider(
+    ["javascript", "typescript"],
+    {
+      provideCompletionItems: async (document, position) => {
+        console.log("completion provider called");
+        const line = document.lineAt(position).text;
+        const beforeCursor = line.slice(0, position.character);
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "variable-name-assist" is now active!');
+        // Only trigger at: const | let | var |
+        const match = beforeCursor.match(/\b(const|let|var)\s+$/);
+        if (!match) return [];
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('variable-name-assist.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from Variable name assist!');
-	});
+        // Extract RHS from the full line (cursor is before '=')
+        const rhsMatch = line.match(/=\s*(.+)$/);
+        const signal = rhsMatch ? rhsMatch[1] : "unknown value";
 
-	context.subscriptions.push(disposable);
+        const name = await suggestVariableName(signal);
+        if (!name) return [];
+
+        const item = new vscode.CompletionItem(
+          name,
+          vscode.CompletionItemKind.Variable,
+        );
+
+        return [item];
+      },
+    },
+  );
+
+  context.subscriptions.push(provider);
 }
-
 // This method is called when your extension is deactivated
 export function deactivate() {}
