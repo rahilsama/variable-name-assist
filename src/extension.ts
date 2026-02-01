@@ -41,7 +41,6 @@ export function activate(context: vscode.ExtensionContext) {
     ["javascript", "typescript"],
     {
       provideCompletionItems: async (document, position) => {
-        console.log("completion provider called");
         const line = document.lineAt(position).text;
         const beforeCursor = line.slice(0, position.character);
 
